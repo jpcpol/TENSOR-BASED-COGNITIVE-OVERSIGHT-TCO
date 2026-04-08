@@ -301,3 +301,5 @@ Licensed under [Creative Commons Attribution-NonCommercial 4.0 International (CC
 
 You are free to share and adapt this material for non-commercial purposes with attribution.  
 Commercial use requires explicit written permission from the author.
+
+Contact: <juanpablo.chancay@aural-syncro.com.ar> - <www.aural-syncro.com.ar>
