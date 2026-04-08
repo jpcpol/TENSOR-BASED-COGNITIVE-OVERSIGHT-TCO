@@ -1,0 +1,59 @@
+version: '3.9'
+
+services:
+  tco_engine:
+    build: ./src/tco_engine
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://tco:tco@postgres:5432/tco_experiment
+      - REDIS_URL=redis://redis:6379/0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./src/tco_engine:/app
+    restart: unless-stopped
+
+  pipeline:
+    build: ./src/pipeline
+    environment:
+      - TCO_ENGINE_URL=http://tco_engine:8000
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - tco_engine
+    volumes:
+      - ./src/pipeline:/app
+
+  dashboard:
+    build: ./src/dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - tco_engine
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=tco_experiment
+      - POSTGRES_USER=tco
+      - POSTGRES_PASSWORD=tco
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/tco_engine/db/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -404,11 +404,18 @@ To develop, formalize, and empirically validate a framework that enables humans 
 | **Control — Traditional HITL** | Raw outputs: code, logs, configs, diagrams. No vector or tensor assistance. Standard IDE + terminal. | Direct artifact editing |
 | **Experimental — TCO** | TCO dashboard: vector V, tensor slices, {Ω,Δ,Ρ,Ξ}. No access to raw outputs. | Natural language policy injection |
 
+#### 6.1.1 Control Group Environment — Standardized Interface
+
+To ensure that observed between-group differences reflect the supervision interface and not interface quality disparities, the control group environment is explicitly standardized as the **ControlGroupViewer**: a read-only multi-tab code viewer presenting artifacts (Python source, YAML configs, architecture markdown, CI/CD logs) with syntax highlighting but no editing capability, paired with a structured **correction form** containing a free-text field ("Describe the issue and your correction") and a severity classifier (Low / Medium / High). No direct artifact modification is permitted; corrections are recorded as text entries logged to the interaction database.
+
+This design equalizes the input modality between groups — both write a text description of their response — while preserving the raw-output information format that defines the Traditional HITL condition. The ControlGroupViewer is implemented with identical layout dimensions, font size, and timer display as the TCO dashboard, eliminating interface ergonomics as a confound.
+
 **Session Protocol per Participant:**
-1. **Orientation (30 min):** Environment familiarization. Experimental group: TCO dashboard training.
-2. **Warm-up (15 min):** Practice task on a different pipeline to eliminate novelty effect.
-3. **Experimental block (90 min):** Four tasks T1–T4 in fixed order.
-4. **Raw-TLX administration** immediately post-task.
+
+1. **Orientation (30 min):** Environment familiarization. Experimental group: TCO dashboard training. Control group: ControlGroupViewer navigation training.
+2. **Warm-up (15 min):** Practice task on a separate warm-up pipeline (microservice with no injected faults) to eliminate novelty effect. Both groups use their assigned interface.
+3. **Experimental block (90 min total, time-boxed per task):** T1: 25 min · T2: 20 min · T3: 15 min · T4: 30 min. Visible countdown timer displayed to all participants. Task closes automatically at time limit; partial responses are captured and scored with available data.
+4. **Raw-TLX administration** immediately post-T2 (intra-session baseline) and immediately post-T4 (final). Six subscales reported individually and as unweighted composite.
 5. **Semi-structured interview (15 min).**
 
 > **Why Raw-TLX over standard NASA-TLX:** Recent literature indicates that global NASA-TLX scores calculated with the traditional pairwise weighting method may be mathematically problematic [Bolton et al., 2023]. Raw-TLX — without pairwise weighting — improves experimental validity for between-condition comparisons. The six subscales are reported individually and as an unweighted composite.
@@ -421,7 +428,11 @@ To develop, formalize, and empirically validate a framework that enables humans 
 
 **T3 — Deployment Decision:** High-pressure scenario: Ω = warning, two active inter-agent conflicts. Participants decide: proceed, block, or proceed with restrictions. Measured: accuracy against expert ground truth and justification quality.
 
-**T4 — Re-orchestration (H5 activation):** After identifying a fault in T1 or T2, participants formulate a correction instruction. Control group: writes directly in code/config. Experimental group: writes a natural language policy in the TCO injection field. The system applies the policy automatically and the vector delta in the next cycle is measured.
+**T3 expert panel protocol:** Ground truth for the deployment decision is established through a two-expert independent panel (n=2 senior software engineers with ≥5 years CI/CD experience, external to the study). Both experts evaluate each T3 scenario independently and produce a consensus decision with documented justification. In case of panel disagreement, a third expert arbiter resolves. Cohen's κ between the two primary experts must be ≥ 0.80 before use in the experiment; if κ < 0.80, the scenario is revised and re-evaluated. Expert panel convenes in Week 3 alongside scenario validation.
+
+**T4 — Re-orchestration (H5 activation):** After identifying a fault in T1 or T2, participants formulate a correction instruction. Control group: writes directly in code/config using the ControlGroupViewer correction form. Experimental group: writes a natural language policy in the TCO injection field. The system applies the policy automatically and the vector delta is measured.
+
+**T4 Δ_post measurement window:** Policy effect is measured across cycles k+1, k+2, and k+3 following injection (3-cycle window). The primary metric is the maximum Δ observed within the window per affected dimension. Mean Δ over the window is reported as a secondary metric. If no statistically significant change is detected within the 3-cycle window, the policy is recorded as ineffective (Δ_post = 0) for H5 scoring. The 3-cycle window is pre-validated in the pilot (Week 5) to confirm it captures the full policy propagation lag of the simulated pipeline.
 
 ### 6.3 The Five Experimental Scenarios — Ground Truth Definition
 
@@ -436,6 +447,8 @@ The fault injection methodology follows established software engineering researc
 | **S5 — Conflict** | Code agent (stateless auth) vs. Arch agent (stateful sessions) | v₂ inter-agent diff = 0.41 | HIGH | Ρ conflict active, Ω = warning | Raw: undetectable in isolation · TCO only (exclusive H4 test) |
 
 > **Note on S3 and S5:** These scenarios are structurally undetectable through individual artifact review. S3 requires cross-temporal correlation of three independent commits; S5 requires simultaneous comparison of two agent outputs on the same module. Both are naturally surfaced by the TCO tensor. This asymmetry is the most direct test of the framework's unique detection capabilities.
+
+**S3 Session Pre-loading Protocol:** S3 requires three prior cycles of accumulated complexity degradation to be visible as a trend (Δ < 0 over three consecutive k values). The pipeline pre-runs S3 with the fault injected automatically before each participant session begins. The three pre-loaded cycles are executed by the real agent pipeline and stored in the database with timestamps set to t−90min, t−60min, and t−30min relative to session start, ensuring the Δ trend is visible in the temporal heatmap from session opening. Pre-loaded data are verified against ground truth delta (v₈: 0.68→0.44, Δ = −0.08/cycle) before each session via automated integrity check. This pre-loading procedure is applied identically to both groups; the control group sees the raw code artifacts from each pre-loaded cycle in their multi-tab viewer.
 
 ### 6.4 Policy Injection Quality (PIQ) Protocol — H5
 
@@ -478,13 +491,15 @@ The PIQ evaluation uses a triangulated approach validated by the LLM-as-a-judge 
 | **Ecological validity** | External | Scenarios constructed from anonymized real CI/CD pipelines. Fault types replicate real defect distributions documented in Apache ecosystem research |
 | **H5 subjectivity** | Construct | Triangulation of three metrics (Vector Δ, PIQ-Rubric, LLM-Judge). κ < 0.60 for any dimension → excluded from main analysis, reported as limitation |
 | **Experience confound** | Internal | ANCOVA controlling for years of experience + pre-test score. Stratified randomization at assignment |
+| **QA evaluation circularity** | Construct | The vector φ produced by the QA LLM agent is the basis of both the experimental instrument (dashboard) and the dependent variable (vector Δ). Agent inconsistency contaminates both simultaneously. Mitigation: pre-experiment validation of QA agent output against static analysis ground truth across all 5 scenarios (Week 3). Required threshold: Spearman ρ ≥ 0.75 between QA-LLM and static metrics for dimensions v₄, v₆, v₇, v₈. If ρ < 0.75 for any dimension, QA agent prompt is revised before proceeding. Validation report archived as Open Science artifact. |
+| **Task order fatigue asymmetry** | Internal | Fixed T1→T4 ordering means control group participants arrive at T4 with higher cumulative cognitive load from raw output review in T1/T2, biasing H5 in favor of TCO. Mitigation: (a) time-boxing prevents runaway time on early tasks; (b) Raw-TLX is administered post-T2 and post-T4 independently to quantify intra-session fatigue trajectory; (c) T4 results are analyzed controlling for T1+T2 combined completion time as a fatigue proxy covariate in ANCOVA. |
 
 ### 6.7 10-Week Experiment Timeline
 
 | Week | Phase | Activity | Deliverable |
 |------|-------|----------|-------------|
 | 1–2 | Build | TCO engine: φ (static analysis + LLM-QA), f₁ (weighted mean), I (threshold + trend detection) | REST API functional: `/vector`, `/tensor`, `/inference`, `/policy/inject` |
-| 3 | Build | Simulated pipeline: 4 LLM agents + 1 QA agent. 5 scenarios with planted faults. Ground truth documentation | Validated scenarios (2 external experts) |
+| 3 | Build + Validate | Simulated pipeline: 4 LLM agents + 1 QA agent. 5 scenarios with planted faults. **QA agent validation**: Spearman ρ ≥ 0.75 between QA-LLM and static analysis ground truth for v₄, v₆, v₇, v₈. **T3 expert panel**: 2 external senior engineers establish deployment decision ground truth (κ ≥ 0.80). Scenario ground truth documentation validated. | Validated pipeline + scenarios. QA agent accuracy report. T3 expert panel agreement record. |
 | 4 | Build | Orchestration dashboard: radar chart, tensor heatmap, inference panel, policy injection field | MVP complete |
 | 5 | Pilot | Internal pilot (n=4, 2 per group). Usability issues detected and protocol adjusted | Final experimental protocol |
 | 6 | Calibration | LLM-Judge calibration for H5. κ validation against 2 human expert annotators | PIQ rubric validated (κ ≥ 0.70) |
