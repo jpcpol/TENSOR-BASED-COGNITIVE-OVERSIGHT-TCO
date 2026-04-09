@@ -642,7 +642,9 @@ def build_pipeline(scenario_id: str, policy: str = None):
 
 ### 7.3 Component B — TCO Engine (Core)
 
-**Technology stack:** Python 3.11 + FastAPI + TimescaleDB (PostgreSQL extension for time-series) + SonarQube Community Edition + Bandit + Coverage.py
+**Technology stack:** Python 3.11 + FastAPI + PostgreSQL 16 + Redis (tensor cache) + radon + pylint + Bandit + Coverage.py
+
+> **Stack decision rationale:** SonarQube Community Edition requires a dedicated Docker server with ~2 days of setup overhead. For the MVP and experiment (n=40), radon provides equivalent cyclomatic complexity and Halstead metrics natively in Python without a server. TimescaleDB is the upgrade path for production deployment after the experiment; the schema is designed for zero-destructive migration (`SELECT create_hypertable(...)` on existing tables). Redis caches `/tensor/current` responses with a 30-second TTL, eliminating redundant aggregation recomputation across concurrent dashboard views. Artifact evaluations are also cached by SHA-256 hash of the artifact content — identical code is not re-evaluated, reducing Claude API costs by an estimated 40–60% in repeated cycle scenarios.
 
 **Project structure:**
 
@@ -661,13 +663,13 @@ tco_engine/
 │   ├── inference_engine.py    # I: T → {Ω, Δ, Ρ, Ξ}
 │   └── policy_processor.py   # P_new → agent instructions
 ├── db/
-│   ├── models.py              # SQLAlchemy models
-│   ├── timeseries.py          # TimescaleDB hypertable operations
+│   ├── models.py              # SQLAlchemy models + Redis cache helpers
+│   ├── queries.py             # Time-indexed DB operations
 │   └── migrations/
 ├── static_analysis/
-│   ├── sonarqube_client.py    # v₁, v₇, v₈ metrics
-│   ├── bandit_runner.py       # v₄ security metrics
-│   └── coverage_runner.py    # v₆ testability metrics
+│   ├── radon_runner.py        # v₆, v₇, v₈: cyclomatic complexity, Halstead, debt ratio
+│   ├── bandit_runner.py       # v₄ security_risk: CVSS-equivalent vulnerability scan
+│   └── coverage_runner.py    # v₆ testability: branch + line coverage ratio
 └── tests/
     ├── test_vectorizer.py
     ├── test_aggregator.py
@@ -710,37 +712,45 @@ class Vectorizer:
     
     def __init__(self, weights: Dict[str, float] = None):
         self.weights = weights or {k: 1.0 for k in range(11)}
-        self.sonar = SonarQubeClient()
-        self.bandit = BanditRunner()
-        self.qa_llm = QAAgent()  # LLM-based evaluation for semantic pillars
+        self.radon  = RadonRunner()      # cyclomatic complexity, Halstead, debt ratio
+        self.bandit = BanditRunner()     # security vulnerability scan
+        self.qa_llm = QAAgent()          # LLM-based evaluation for semantic pillars
+        self.cache  = ArtifactCache()    # Redis: keyed by SHA-256 of artifact content
     
     def vectorize(self, artifact: Artifact, historical_baseline: np.ndarray = None) -> EvaluationVector:
-        # Static analysis metrics (objective)
-        sonar_metrics = self.sonar.analyze(artifact)
-        security_metrics = self.bandit.scan(artifact)
+        # Cache check: identical artifact content → return cached vector
+        cache_key = artifact.content_hash()  # SHA-256
+        if cached := self.cache.get(cache_key):
+            return cached
+        
+        # Static analysis metrics (objective — radon + bandit)
+        radon_metrics   = self.radon.analyze(artifact)   # cyclomatic, Halstead, debt
+        security_metrics = self.bandit.scan(artifact)    # vulnerability count, severity
         
         # LLM-QA evaluation (semantic pillars)
         llm_eval = self.qa_llm.evaluate(artifact)
         
-        # Confidence: consensus between static and LLM evaluations
-        confidence = self._compute_consensus(sonar_metrics, llm_eval)
+        # Confidence: consensus between static analysis and LLM-QA
+        confidence = self._compute_consensus(radon_metrics, llm_eval)
         
         # Anomaly: Z-score vs historical baseline
         anomaly = self._compute_anomaly(artifact, historical_baseline)
         
-        return EvaluationVector(
-            functional_correctness = self._normalize(llm_eval.test_pass_rate),
+        vector = EvaluationVector(
+            functional_correctness  = self._normalize(llm_eval.test_pass_rate),
             architectural_alignment = self._normalize(llm_eval.pattern_compliance),
             scalability_projection  = self._normalize(llm_eval.scalability_score),
-            security_risk           = 1 - self._normalize(security_metrics.cvss_score),
-            observability_coverage  = self._normalize(sonar_metrics.log_coverage),
-            testability             = self._normalize(sonar_metrics.test_isolation),
-            maintainability         = self._normalize(sonar_metrics.halstead_volume, invert=True),
-            technical_debt          = 1 - self._normalize(sonar_metrics.debt_ratio),
+            security_risk           = 1 - self._normalize(security_metrics.weighted_severity),
+            observability_coverage  = self._normalize(radon_metrics.log_coverage),
+            testability             = self._normalize(radon_metrics.cyclomatic_complexity, invert=True),
+            maintainability         = self._normalize(radon_metrics.halstead_volume, invert=True),
+            technical_debt          = 1 - self._normalize(radon_metrics.debt_ratio),
             performance             = self._normalize(llm_eval.performance_score),
             confidence              = confidence,
             anomaly_score           = 1 - anomaly
         )
+        self.cache.set(cache_key, vector)
+        return vector
     
     def _normalize(self, value: float, invert: bool = False) -> float:
         """Min-max normalization to [0,1]"""
@@ -973,19 +983,68 @@ async def get_latest_inference() -> InferenceResponse:
 @app.post("/policy/inject")
 async def inject_policy(payload: PolicyPayload) -> PolicyResponse:
     """Receive natural language policy P_new and re-orchestrate agents."""
-    # Parse NL policy into structured agent instructions
+    # Structured extraction: NL → PolicyIntent struct
     instructions = policy_processor.parse(payload.policy_text, context=payload.tensor_state)
     
-    # Store policy for H5 evaluation
+    # Store full struct for H5 evaluation (PIQ scored on struct, not only on raw text)
     policy_id = db.store_policy(payload.policy_text, instructions, payload.participant_id)
     
-    # Inject into agent pipeline
+    # Inject struct as system prompt patch per target agent
     pipeline.update_context(instructions)
     
     return PolicyResponse(policy_id=policy_id, instructions=instructions, status="injected")
 ```
 
-**Database schema — TimescaleDB:**
+**Policy Processor — Structured Extraction Architecture:**
+
+The `policy_processor` implements a **hybrid structured extraction** pattern. This architecture was selected over direct prompt injection because the extracted struct provides a fully auditable record for H5 scoring: PIQ evaluation can be applied to the intent struct, not only to the raw natural language text.
+
+```python
+# core/policy_processor.py
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass
+class PolicyIntent:
+    """Structured representation of a natural language policy P_new."""
+    target_agents:       list[str]                          # e.g. ["code_agent", "arch_agent"]
+    action_type:         Literal["prioritize","restrict","focus","resolve"]
+    affected_dimensions: list[str]                          # e.g. ["security_risk", "v4"]
+    constraint:          str                                # e.g. "use parameterized queries"
+    priority:            Literal["high","medium","low"]
+
+class PolicyProcessor:
+    """P_new (NL) → PolicyIntent → agent system prompt patch."""
+    
+    def parse(self, policy_text: str, context: dict) -> PolicyIntent:
+        # Step 1: LLM extracts structured intent from NL + current tensor state
+        intent = self._extract_intent(policy_text, context)
+        
+        # Step 2: Validate intent references real agents and dimensions
+        self._validate(intent)
+        return intent
+    
+    def to_agent_patch(self, intent: PolicyIntent) -> dict[str, str]:
+        """Convert PolicyIntent to per-agent system prompt addendum."""
+        patch = {}
+        for agent_id in intent.target_agents:
+            patch[agent_id] = (
+                f"ACTIVE POLICY [{intent.priority.upper()}]: "
+                f"{intent.action_type} {', '.join(intent.affected_dimensions)}. "
+                f"Constraint: {intent.constraint}. Apply to next generation cycle."
+            )
+        return patch
+    
+    def _extract_intent(self, policy_text: str, context: dict) -> PolicyIntent:
+        """LLM-based extraction with structured output via Pydantic."""
+        # Uses claude-sonnet-4-6 with few-shot examples
+        # Fallback: if extraction confidence < 0.7, returns direct-injection mode
+        ...
+```
+
+> **Fallback behavior:** If intent extraction produces confidence < 0.70 (measured by LLM self-assessment), the system falls back to direct injection: the full policy text is appended as a free-text addendum to all agent system prompts. The fallback event is logged and counted in the H5 analysis as a degraded policy case.
+
+**Database schema — PostgreSQL 16:**
 
 ```sql
 -- Evaluation vectors (time-series hypertable)
@@ -1240,54 +1299,54 @@ class InteractionLogger:
 ### 7.6 Docker Compose — Full Stack
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml — 5 services, no external analysis server required
 version: '3.9'
 
 services:
   tco_engine:
-    build: ./tco_engine
+    build: ./src/tco_engine
     ports: ["8000:8000"]
     environment:
-      - DATABASE_URL=postgresql://tco:tco@timescaledb:5432/tco_experiment
+      - DATABASE_URL=postgresql://tco:tco@postgres:5432/tco_experiment
+      - REDIS_URL=redis://redis:6379/0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - SONARQUBE_URL=http://sonarqube:9000
-    depends_on: [timescaledb, sonarqube]
+      - POLICY_WINDOW_CYCLES=3
+    depends_on: [postgres, redis]
     volumes:
-      - ./tco_engine:/app
+      - ./src/tco_engine:/app
 
   pipeline:
-    build: ./pipeline
+    build: ./src/pipeline
     environment:
       - TCO_ENGINE_URL=http://tco_engine:8000
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     depends_on: [tco_engine]
 
   dashboard:
-    build: ./dashboard
+    build: ./src/dashboard
     ports: ["3000:3000"]
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8000
     depends_on: [tco_engine]
 
-  timescaledb:
-    image: timescale/timescaledb:latest-pg15
+  postgres:
+    image: postgres:16-alpine
     environment:
       - POSTGRES_DB=tco_experiment
       - POSTGRES_USER=tco
       - POSTGRES_PASSWORD=tco
     volumes:
-      - timescale_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/tco_engine/db/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
 
-  sonarqube:
-    image: sonarqube:community
-    ports: ["9000:9000"]
+  redis:
+    image: redis:7-alpine
     volumes:
-      - sonarqube_data:/opt/sonarqube/data
+      - redis_data:/data
 
 volumes:
-  timescale_data:
-  sonarqube_data:
+  postgres_data:
+  redis_data:
 ```
 
 ---
@@ -1481,12 +1540,13 @@ Natural language policy injection is the most expressive and least constrained c
 | TCO Engine API | FastAPI | 0.115+ | REST API, vectorization, inference |
 | Agent Orchestration | LangGraph | 0.2+ | Multi-agent pipeline control |
 | LLM (all agents) | Claude API | claude-sonnet-4-6 | Generation, QA evaluation, policy processing |
-| Time-series DB | TimescaleDB | latest-pg15 | Vector + tensor persistence |
-| Static Analysis | SonarQube Community | latest | v₁, v₇, v₈ metrics |
-| Security Scan | Bandit | 1.8+ | v₄ security metrics |
-| Test Coverage | Coverage.py | 7.0+ | v₆ testability metrics |
-| Dashboard | React + Recharts | 18 + 2.x | 4-view orchestration UI |
-| Container | Docker Compose | 3.9 | Full-stack orchestration |
+| Database | PostgreSQL 16 | 16-alpine | Vector + interaction + policy persistence |
+| Cache | Redis | 7-alpine | Tensor cache (TTL 30s) + artifact hash cache |
+| Static Analysis | radon + pylint | 6.0 + 3.1 | v₆, v₇, v₈: complexity, Halstead, debt ratio |
+| Security Scan | Bandit | 1.8+ | v₄: vulnerability scan |
+| Test Coverage | Coverage.py | 7.0+ | v₆: branch + line coverage ratio |
+| Dashboard | React 18 + Recharts + TypeScript | 18 + 2.x + 5.x | 4-view orchestration UI + experiment UI |
+| Container | Docker Compose | 3.9 | 5-service full-stack (no external analysis server) |
 
 ### C.2 API Endpoint Reference
 
@@ -1503,19 +1563,21 @@ Natural language policy injection is the most expressive and least constrained c
 ### C.3 Environment Variables
 
 ```bash
-# .env
+# .env — copy from .env.example, never commit
 ANTHROPIC_API_KEY=sk-ant-...          # Required: Claude API
-DATABASE_URL=postgresql://...          # Required: TimescaleDB
-SONARQUBE_URL=http://sonarqube:9000    # Required: static analysis
-SONARQUBE_TOKEN=squ_...               # Required: SonarQube auth
+DATABASE_URL=postgresql://...          # Required: PostgreSQL 16
+REDIS_URL=redis://localhost:6379/0    # Required: tensor + artifact cache
 
 # Experiment configuration
-EXPERIMENT_MODE=true                   # Enables interaction logging
-LOG_LEVEL=INFO
-TCO_THRESHOLD_STABLE=0.70             # Ω = stable if score ≥ this
-TCO_THRESHOLD_WARNING=0.50            # Ω = warning if score ≥ this
-TCO_CONFLICT_THRESHOLD=0.30           # Ρ detection threshold
-TCO_TREND_SIGNIFICANCE=0.05           # Δ minimum significance
+EXPERIMENT_MODE=development           # development | pilot | full
+POLICY_WINDOW_CYCLES=3               # Δ_post measurement window (H5)
+TENSOR_CACHE_TTL=30                  # Redis TTL in seconds
+
+# TCO thresholds (configurable per domain)
+TCO_THRESHOLD_STABLE=0.70            # Ω = stable if score ≥ this
+TCO_THRESHOLD_WARNING=0.50           # Ω = warning if score ≥ this
+TCO_CONFLICT_THRESHOLD=0.30          # Ρ detection threshold
+TCO_TREND_SIGNIFICANCE=0.05          # Δ minimum significance
 ```
 
 ---

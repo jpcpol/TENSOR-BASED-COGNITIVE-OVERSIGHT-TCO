@@ -57,7 +57,7 @@ que deberá abordarse antes de la submission final o el experimento completo.
 ### DT-004 · Implementar la interfaz del grupo control (ControlGroupViewer)
 
 **Componente:** `src/dashboard/src/experiment/ControlGroupViewer.tsx`  
-**Estado:** Archivo creado, vacío  
+**Estado:** Especificada en paper (Sección 6.1.1). Archivo creado, implementación pendiente.  
 **Descripción:** La interfaz del grupo control debe ser tan estandarizada como el dashboard TCO. Requiere:
 
 - Multi-tab viewer: código Python, YAML, markdown de arquitectura, logs CI/CD
@@ -87,8 +87,8 @@ que deberá abordarse antes de la submission final o el experimento completo.
 ### DT-006 · Implementar el policy_processor.py
 
 **Componente:** `src/tco_engine/core/policy_processor.py`  
-**Estado:** Archivo creado, vacío  
-**Descripción:** El procesador de políticas es el componente más ambiguo del diseño. Arquitectura decidida: **structured extraction híbrida**.
+**Estado:** Archivo creado, vacío. **Arquitectura decidida:** structured extraction híbrida (documentada en paper Sección 7.3).  
+**Descripción:** El procesador de políticas implementa `PolicyIntent` dataclass + extracción LLM + fallback a direct injection si confidence < 0.70.
 
 El flujo es:
 
@@ -103,8 +103,8 @@ El flujo es:
 
 ### DT-007 · Protocolo de reclutamiento de participantes (n=40)
 
-**Componente:** `src/experiment/participant_manager/`  
-**Estado:** Estrategia no definida  
+**Componente:** `src/experiment/participant_manager/`, `protocols/participant_session_protocol.md`  
+**Estado:** ~~Estrategia no definida~~ **Decisión tomada** — ver `protocols/participant_session_protocol.md`  
 **Descripción:** El paper no tiene estrategia de reclutamiento. Propuesta para definir antes del experimento:
 
 - **n=20 online**: comunidades de ingeniería de software (Reddit r/programming, r/softwareengineering, Discord de LangChain/Python, LinkedIn grupos de SE)
@@ -222,6 +222,17 @@ Ejecutar automáticamente antes de cada sesión experimental.
 **Descripción:** El Markdown es el documento de trabajo. Antes de cualquier submission, adaptar al template ACM para CHI/FSE (primero) o IEEEtran para RE. La adaptación es de formato, no de contenido — pero requiere: figuras vectoriales, numeración de tablas, bibliografía en BibTeX, formato de autores según venue.
 
 ---
+
+### DT-017 · Implementar ArtifactCache (Redis hash cache)
+
+**Componente:** `src/tco_engine/core/vectorizer.py`, `src/tco_engine/db/models.py`  
+**Estado:** Diseñada en paper (Sección 7.3) y .env.example. Implementación pendiente.  
+**Descripción:** Cache Redis keyed por SHA-256 del contenido del artefacto. Si el mismo código ya fue evaluado, retorna el vector cacheado sin llamar al LLM ni a radon/bandit. Estimación de reducción de costos API: 40–60% en escenarios con múltiples ciclos repetidos. TTL configurable via `TENSOR_CACHE_TTL` (default: 30s para tensor snapshot, sin TTL para artifact hash — los vectores son deterministas dado el mismo código).
+
+---
+
+*Última actualización: Abril 2026*  
+*Próxima revisión: al completar Semana 2 del roadmap*
 
 *Última actualización: Abril 2026*  
 *Próxima revisión: al completar Semana 2 del roadmap*
