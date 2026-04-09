@@ -23,3 +23,7 @@ Thumbs.db
 # Docs
 Documentacion/*.pdf
 Documentacion/*.docx
+
+# Debt
+Deuda Tecnica/*.md
+Deuda Tecnica/*.docx
