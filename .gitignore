@@ -20,10 +20,7 @@ build/
 .DS_Store
 Thumbs.db
 
-# Docs
+# Docs (binaries only — .md files are tracked)
 Documentacion/*.pdf
 Documentacion/*.docx
-
-# Debt
-Deuda Tecnica/*.md
 Deuda Tecnica/*.docx

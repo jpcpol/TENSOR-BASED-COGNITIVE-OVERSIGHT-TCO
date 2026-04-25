@@ -1,8 +1,25 @@
-# Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
+# Dual License — Tensor-Based Cognitive Oversight (TCO)
 
 Tensor-Based Cognitive Oversight (TCO) © 2026 Juan Pablo Chancay
 
 ---
+
+## License Structure
+
+This repository uses a dual-license model:
+
+| Scope | Files | License |
+| ----- | ----- | ------- |
+| Research & Documentation | `Documentacion/`, `protocols/`, `README.md`, all `.md` files outside `src/` | CC BY-NC 4.0 |
+| Source Code | `src/`, `analysis/` | GNU AGPL-3.0 |
+
+> Creative Commons explicitly recommends against using CC licenses for software.
+> The AGPL-3.0 is used for source code to ensure Open Science compliance
+> (OSI-approved) while preventing commercial exploitation.
+
+---
+
+## Part 1 — Research & Documentation
 
 This work is licensed under the Creative Commons Attribution-NonCommercial
 4.0 International License.
@@ -76,3 +93,27 @@ material for any purpose.
 
 For the complete legal text of the CC BY-NC 4.0 license, see:
 <https://creativecommons.org/licenses/by-nc/4.0/legalcode>
+
+---
+
+## Part 2 — Source Code
+
+All files under `src/` and `analysis/` are licensed under the
+**GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+See [src/LICENSE](src/LICENSE) for the full license text.
+
+Summary of AGPL-3.0 terms:
+
+- You may use, study, copy, modify, and distribute the source code.
+- Any modified version you distribute must also be released under AGPL-3.0.
+- If you run this software as a network service (SaaS), you must make the
+  complete source code available to users of that service.
+- **Commercial use is not prohibited** by AGPL-3.0, but the copyleft and
+  network-use requirements make proprietary commercial exploitation
+  impractical without a separate commercial license from the author.
+
+For a commercial license exempting you from AGPL-3.0 obligations,
+contact the author via the GitHub repository.
+
+Full AGPL-3.0 text: <https://www.gnu.org/licenses/agpl-3.0.txt>
