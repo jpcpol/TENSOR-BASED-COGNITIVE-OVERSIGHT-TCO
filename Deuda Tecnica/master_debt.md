@@ -10,8 +10,8 @@ que deberá abordarse antes de la submission final o el experimento completo.
 | ID | Descripción breve | Categoría | Estado |
 | -- | ----------------- | --------- | ------ |
 | DT-001 | Instalar entornos de dependencias | Crítica | Pendiente |
-| DT-002 | Implementar `vectorizer.py` | Crítica | Pendiente |
-| DT-003 | Implementar prompt del QA Agent | Crítica | Pendiente |
+| DT-002 | Implementar `vectorizer.py` | Crítica | Implementado |
+| DT-003 | Implementar prompt del QA Agent | Crítica | Implementado |
 | DT-004 | Implementar `ControlGroupViewer.tsx` | Crítica | Decisión Tomada |
 | DT-005 | Definir warm-up pipeline | Importante | Pendiente |
 | DT-006 | Implementar `policy_processor.py` | Importante | Decisión Tomada |
@@ -24,7 +24,7 @@ que deberá abordarse antes de la submission final o el experimento completo.
 | DT-013 | `integrity_checker.py` pre-sesión | Recomendado | Pendiente |
 | DT-014 | Protocolo de consentimiento informado | Recomendado | Pendiente |
 | DT-015 | Sección Related Work del paper | Recomendado | Pendiente |
-| DT-016 | Adaptar paper a formato LaTeX/ACM | Recomendado | Pendiente |
+| DT-016 | Adaptar paper a formato LaTeX/ACM | Recomendado | Implementado |
 | DT-017 | Implementar ArtifactCache (Redis) | Recomendado | Decisión Tomada |
 
 **Estados:**
@@ -52,7 +52,7 @@ que deberá abordarse antes de la submission final o el experimento completo.
 ### DT-002 · Implementar el cuerpo de `vectorizer.py`
 
 **Componente:** `src/tco_engine/core/vectorizer.py`  
-**Estado:** Pendiente  
+**Estado:** Implementado — vectorizer.py completo con integración radon/bandit/LLM-QA, consensus, anomaly Z-score, ArtifactCache. Shared evaluator en `src/tco_engine/core/qa_evaluator.py`.  
 **Descripción:** El vectorizador φ es el componente de mayor complejidad del engine. Requiere:
 
 1. Integración con `radon_runner.py` para v₆ (testability), v₇ (maintainability), v₈ (technical_debt)
@@ -69,7 +69,7 @@ que deberá abordarse antes de la submission final o el experimento completo.
 ### DT-003 · Implementar el prompt del QA Agent
 
 **Componente:** `src/pipeline/agents/qa_agent.py`  
-**Estado:** Pendiente  
+**Estado:** Implementado — prompt con 3 few-shot examples (clean code, SQL injection, circular dep YAML), structured output via tool_use, EvaluationMetrics Pydantic model, confidence_self_assessment, neutral fallback.  
 **Descripción:** El QA Agent es el origen del vector. Su prompt template determina la calidad de φ. Necesita:
 
 - Structured output con Pydantic mapeando directamente a los 11 pillars
@@ -235,8 +235,8 @@ Threshold: κ ≥ 0.70 por dimensión antes de usar el LLM-Judge en el experimen
 
 ### DT-016 · Adaptación del paper a formato LaTeX (ACM template)
 
-**Componente:** `Documentacion/`  
-**Estado:** Pendiente — bloqueador 3 para submission  
+**Componente:** `Documentacion/TCO_LaTeX/`  
+**Estado:** Implementado — main.tex (ACM manuscript class, 11 secciones completas, tablas booktabs, fórmulas LaTeX) + references.bib (30 entradas BibTeX). Pendiente: figuras vectoriales y venue-specific class swap antes de submission.  
 **Descripción:** El Markdown es el documento de trabajo. Antes de cualquier submission, adaptar al template ACM para CHI/FSE o IEEEtran para RE. Requiere: figuras vectoriales, numeración de tablas, bibliografía en BibTeX, formato de autores según venue.
 
 ---

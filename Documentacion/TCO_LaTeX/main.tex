@@ -1,0 +1,680 @@
+%% TENSOR-BASED COGNITIVE OVERSIGHT (TCO)
+%% ACM submission draft — April 2026
+%% Compile: pdflatex main.tex → bibtex main → pdflatex main.tex (×2)
+%%
+%% Target venues:
+%%   CHI 2027   → \documentclass[sigconf,anonymous]{acmart}
+%%   EMSE       → \documentclass[acmlarge]{acmart}
+%%   IEEE RE    → switch to IEEEtran.cls
+%%
+\documentclass[manuscript,review,anonymous]{acmart}
+
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{tabularx}
+
+%% --- listings style for Python pseudocode ---
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{green!60!black},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{black!20},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=1.5em,
+}
+
+%% --- ACM metadata ---
+\acmConference[CHI '27]{ACM CHI Conference on Human Factors in Computing Systems}
+  {April 26--May 1, 2027}{Yokohama, Japan}
+\acmBooktitle{Proceedings of the 2027 CHI Conference on Human Factors in Computing Systems}
+\acmISBN{978-1-4503-XXXX-X/27/04}
+\acmDOI{10.1145/XXXXXXX.XXXXXXX}
+\copyrightyear{2027}
+\acmYear{2027}
+
+\begin{document}
+
+\title{Tensor-Based Cognitive Oversight (TCO): A Framework for Human Orchestration of Multi-Agent AI Software Systems}
+
+\author{Juan Pablo Chancay}
+\affiliation{%
+  \institution{Aural Syncro}
+  \city{[City]}
+  \country{[Country]}
+}
+\email{[email]}
+
+%%
+%% Abstract
+%%
+\begin{abstract}
+Multi-agent AI systems generating software artifacts at continuous scale create a
+fundamental bottleneck: human supervisors must review outputs that systematically
+exceed their cognitive processing capacity. Existing Human-in-the-Loop (HITL)
+frameworks address this at the artifact level, leaving review effort coupled linearly
+to output volume. We propose \textit{Tensor-Based Cognitive Oversight (TCO)}, a
+framework that restructures human oversight by (1)~transforming artifacts into
+normalized 11-dimensional evaluation vectors \(\mathbf{V} \in [0,1]^{11}\), (2)~aggregating
+vectors into a cognitive tensor \(T[d, i, j, k] \in \mathbb{R}^{n \times s \times a \times t}\)
+capturing quality state across dimensions, stages, agents, and time, (3)~deriving
+actionable inferences \(I: T \rightarrow \{\Omega, \Delta, \mathcal{P}, \Xi\}\), and
+(4)~enabling bidirectional policy injection in natural language. The framework introduces
+the concept of the \textit{Natural Cognitive Frontier (NCF)}: the abstraction level at
+which cognitive demand is calibrated to human working memory capacity. We present an
+experimental design (between-subjects, $n = 40$, 5 fault-injection scenarios) to test
+five hypotheses: reduced cognitive load, improved decision accuracy, earlier fault
+detection, lower time-to-correct, and higher policy injection quality. We report
+the TCO architecture, a deployable MVP implementation, and implications for human
+oversight of autonomous AI development pipelines.
+\end{abstract}
+
+\keywords{human-in-the-loop, cognitive oversight, multi-agent AI, software quality,
+  evaluation vector, natural cognitive frontier, human-AI collaboration}
+
+\begin{CCSXML}
+<ccs2012>
+   <concept>
+       <concept_id>10003120.10003121.10003122</concept_id>
+       <concept_desc>Human-centered computing~HCI theory, concepts and models</concept_desc>
+       <concept_significance>500</concept_significance>
+   </concept>
+   <concept>
+       <concept_id>10011007.10011074.10011092</concept_id>
+       <concept_desc>Software and its engineering~Software quality</concept_desc>
+       <concept_significance>300</concept_significance>
+   </concept>
+   <concept>
+       <concept_id>10010147.10010178.10010179</concept_id>
+       <concept_desc>Computing methodologies~Intelligent agents</concept_desc>
+       <concept_significance>300</concept_significance>
+   </concept>
+</ccs2012>
+\end{CCSXML}
+\ccsdesc[500]{Human-centered computing~HCI theory, concepts and models}
+\ccsdesc[300]{Software and its engineering~Software quality}
+\ccsdesc[300]{Computing methodologies~Intelligent agents}
+
+\maketitle
+
+%%
+%% 1. Introduction
+%%
+\section{Introduction}
+
+Artificial intelligence systems are increasingly capable of generating complete software
+artifacts at scale --- code, configurations, architectural decisions, and deployment
+pipelines. While this capability enhances productivity, it introduces a structural
+bottleneck: human supervisors are required to validate outputs that systematically
+exceed efficient cognitive processing capacity \cite{sweller1988}.
+
+This bottleneck manifests as cognitive saturation. When working memory is overloaded,
+error detection deteriorates, decision quality degrades, and human agents shift from
+deliberate analytical mode to reactive heuristic mode \cite{sweller2011}. Cowan
+\cite{cowan2001} establishes a working memory capacity of 3--5 meaningful chunks;
+multi-agent software pipelines routinely produce dozens of interdependent artifacts per
+cycle, each requiring cross-referencing judgment.
+
+Traditional HITL models assume bounded, interpretable discrete outputs at well-defined
+checkpoints \cite{hitlreview2025}. In continuous multi-agent AI-driven development,
+this assumption fails: outputs are continuous, each artifact is complex, and errors
+propagate across interdependent components. Recent industry analysis confirms the
+consequence: Codebridge's study of 211 million changed lines of code over four years
+\cite{codebridge2025} documents increasing defect rates in repositories with high
+AI-generated code proportions.
+
+This paper argues that the bottleneck is not human capability but the \textbf{level of
+abstraction} at which humans interact with AI outputs. We propose
+\textit{Tensor-Based Cognitive Oversight (TCO)}, a framework that replaces
+per-artifact review with system-level orchestration at the
+\textit{Natural Cognitive Frontier (NCF)} --- the abstraction level where cognitive
+demand is calibrated to human working memory.
+
+TCO makes four technical contributions:
+\begin{enumerate}
+  \item A formal \textbf{evaluation vector model} $\mathbf{V} \in [0,1]^{11}$ normalising
+    artifact quality across 11 semantic dimensions.
+  \item A \textbf{cognitive tensor} $T[d,i,j,k]$ representing global system state
+    across dimensions, pipeline stages, agents, and time.
+  \item An \textbf{inference model} $I: T \rightarrow \{\Omega, \Delta, \mathcal{P}, \Xi\}$
+    deriving actionable system state, trends, conflicts, and recommendations.
+  \item A \textbf{bidirectional policy loop} enabling natural language re-orchestration
+    of the agent system from the NCF.
+\end{enumerate}
+
+%%
+%% 2. Related Work
+%%
+\section{Related Work}
+
+\subsection{Human-in-the-Loop Frameworks for Agentic AI}
+
+A 2025 systematic review of over 400 HITL implementations identifies cognitive load
+and trust calibration as persistently unsolved challenges in deployed systems
+\cite{hitlreview2025}. HITL effectiveness degrades sharply as output volume and
+artifact complexity increase.
+
+The most directly related work is HULA \cite{hula2024}, which integrates human review
+checkpoints into a multi-agent software development pipeline. TCO and HULA share the
+recognition that unmediated agentic output is unmanageable; they differ architecturally.
+HULA preserves artifact-level intervention --- review effort scales with volume.
+TCO proposes system-level orchestration, decoupling cognitive effort from output volume.
+Pareschi and Saghafian \cite{pareschi2024} argue for a shift from direct to delegated
+control as agent capability increases; TCO operationalizes that delegation with the
+vector $\phi$, tensor $T$, and policy loop.
+
+\subsection{Supervisory Control and Levels of Automation}
+
+Parasuraman, Sheridan, and Wickens \cite{parasuraman2000levels} establish a ten-level
+taxonomy of human-automation interaction, predicting that as AI autonomy increases,
+supervisory interfaces must shift from monitoring individual actions to managing
+goal-level outcomes. Miller and Parasuraman \cite{miller2007} show that effective
+oversight requires interfaces calibrated to the decision horizon, not operational detail.
+Cummings \cite{cummings2014} demonstrates empirically that performance bottlenecks in
+complex automation arise from interface design failures: supervisors consistently
+perform better with aggregated decision-relevant displays than with technical readouts.
+
+\subsection{Observability and Monitoring Tools}
+
+Commercial platforms (Datadog, New Relic, Grafana) excel at infrastructure-level
+telemetry but cannot represent semantic quality dimensions
+(architectural alignment, security exposure, maintainability trajectory) that require
+natural language understanding. The NIST AI Risk Management Framework \cite{nist2023rmf}
+mandates continuous monitoring but does not address the cognitive interface problem.
+Sculley et al.\ \cite{sculley2015} document that technical debt in ML systems
+accumulates at the semantic level before manifesting in operational metrics; TCO's
+tensor is designed to surface this pre-operational degradation.
+
+\subsection{Cognitive Load in Software Engineering}
+
+Code review is among the most cognitively demanding activities in software development,
+with quality degradation documented beyond 60--90 minutes of sustained review
+\cite{sweller2011}. Amershi et al.\ \cite{amershi2019} document compound cognitive
+overhead when ML components are involved. Codebridge \cite{codebridge2025} provides
+large-scale evidence that the binding constraint in AI-assisted development is review
+throughput, not generation throughput.
+
+\subsection{Multi-Agent Evaluation and LLM-as-Judge}
+
+LLM-based systems --- SWE-agent \cite{sweagent2024}, Devin, OpenHands --- generate
+semantically interdependent artifacts across stages. TCO's tensor indexing
+$T[d, i, j, k]$ explicitly captures cross-agent dependency: the conflict component
+$\mathcal{P}$ detects inter-agent disagreement before downstream failures occur.
+The LLM-as-Judge paradigm \cite{llmjudge2025winlp,llminterrater2025,llmjudgeempirical2025}
+provides the substrate for automated vector generation, with inter-rater reliability
+$\kappa \geq 0.70$ when structured rubrics are used \cite{llminterrater2025}.
+
+%%
+%% 3. Theoretical Framework
+%%
+\section{Theoretical Framework}
+
+TCO is grounded in four established theories, integrated within the specific domain of
+human orchestration of multi-agent AI software systems.
+
+\subsection{Cognitive Load Theory}
+
+Sweller's Cognitive Load Theory \cite{sweller1988} distinguishes intrinsic,
+extraneous, and germane load competing for finite working memory capacity
+(3--5 chunks \cite{cowan2001}). Artifact review imposes maximum intrinsic load
+(complex outputs) and maximum extraneous load (machine-optimised format). TCO
+eliminates extraneous load via the vector $\phi(A)$ and intrinsic load via the tensor
+$T$, leaving the human with pure germane load: interpretation, judgment, and policy.
+
+\subsection{Situation Awareness}
+
+Endsley's SA model \cite{endsley1995} specifies three levels --- L1 (perception),
+L2 (comprehension), L3 (projection) --- with 76\% of SA errors occurring at
+L1 \cite{endsley2000}. HITL systems force operation at L1 (reading code, parsing logs).
+TCO shifts human operation to L2/L3: the vectorisation layer handles L1 automatically.
+
+\begin{table}[t]
+  \caption{Situation Awareness Levels Mapped to TCO Architecture}
+  \label{tab:sa-mapping}
+  \begin{tabular}{p{3cm}p{5cm}}
+    \toprule
+    SA Level & TCO Component \\
+    \midrule
+    L1 --- Perception & Vectorisation layer $\phi$: automated extraction \\
+    L2 --- Comprehension & Tensor $T$ + Inference layer: aggregated state \\
+    L3 --- Projection & Trend analysis $\Delta$ and conflict detection $\mathcal{P}$ \\
+    Decision \& Action & NCF: natural language policy formulation \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Supervisory Control Theory}
+
+Sheridan \cite{sheridan1992} describes the evolution from direct operators to
+supervisors in complex automated systems. The aviation shift to glass cockpits
+provides the historical precedent: aggregated system-state displays replaced
+direct instrument reading, enabling pilots to operate at goal-oriented levels.
+TCO proposes the equivalent shift for AI-driven software.
+
+\subsection{Gap in Existing Literature}
+
+Existing approaches fail on two dimensions: (1) they treat HITL as output-level
+intervention rather than system-level orchestration; (2) they do not address the
+representation problem. TCO is structurally distinct from existing observability
+platforms along four dimensions: semantic quality vocabulary, multi-agent aggregation,
+cognitive interface orientation, and bidirectional policy loop.
+
+%%
+%% 4. Problem Statement
+%%
+\section{Problem Statement}
+
+\subsection{Cognitive Mismatch in AI Supervision}
+
+Human supervisors of multi-agent AI software systems must simultaneously:
+monitor \textit{volume} (dozens of artifacts per cycle), assess
+\textit{cross-artifact consistency} (inter-agent coherence), and maintain
+\textit{temporal awareness} (quality trends across cycles). Each demand is individually
+manageable; their simultaneous imposition saturates working memory.
+
+The root cause is a representation mismatch: AI systems generate outputs in
+machine-optimised formats (Python ASTs, YAML trees, deployment manifests), while human
+supervisors require decision-oriented abstractions.
+
+\subsection{Incorrect Abstraction Level}
+
+Current HITL systems position the human at the artifact level (Direct control in
+Parasuraman's taxonomy \cite{parasuraman2000levels}). The appropriate level for a
+human orchestrator of an autonomous pipeline is Goal-Oriented: the human specifies
+outcomes, the system reports on trajectory. TCO implements this shift.
+
+\subsection{Automation Bias and TCO's Mitigation}
+
+Automation bias \cite{parasuraman2010,kucking2024} --- over-reliance on automated
+outputs --- is a risk at any abstraction level. TCO mitigates this through:
+(a) explicit anomaly scoring ($v_{11}$) that surfaces surprising deviations;
+(b) inter-agent conflict detection ($\mathcal{P}$) that flags inconsistencies the
+human may miss;
+(c) confidence scoring ($v_{10}$) that signals low-reliability evaluations requiring
+direct review.
+
+%%
+%% 5. The TCO Framework
+%%
+\section{The TCO Framework}
+
+\subsection{Architectural Overview}
+
+TCO implements a six-layer bidirectional architecture:
+
+\begin{enumerate}
+  \item \textbf{AI Generation:} Multi-agent pipeline produces artifacts per cycle.
+  \item \textbf{QA Evaluation:} LLM-based quality agent evaluates each artifact.
+  \item \textbf{Vectorisation $\phi$:} Artifacts $\rightarrow$ $\mathbf{V} \in [0,1]^{11}$.
+  \item \textbf{Tensor Aggregation $f$:} $\{\mathbf{V}\} \rightarrow T[d,i,j,k]$.
+  \item \textbf{Inference $I$:} $T \rightarrow \{\Omega, \Delta, \mathcal{P}, \Xi\}$.
+  \item \textbf{Human Orchestration at NCF:} Natural language policy $\rightarrow$
+    re-orchestration of agents.
+\end{enumerate}
+
+The bidirectional loop: artifacts flow upward through layers 1--5 to the human;
+policy flows downward from the human through layer 6 back to layer 1.
+
+\subsection{The Evaluation Vector Model}
+
+\begin{equation}
+  \mathbf{V} = (v_1, v_2, \ldots, v_{11}) \in [0,1]^{11}
+\end{equation}
+
+\begin{table}[t]
+  \caption{The 11-Dimension Evaluation Vector}
+  \label{tab:vector}
+  \begin{tabular}{clcc}
+    \toprule
+    \# & Dimension & Source & Inverted \\
+    \midrule
+    $v_1$ & functional\_correctness & LLM-QA & --- \\
+    $v_2$ & architectural\_alignment & LLM-QA & --- \\
+    $v_3$ & scalability\_projection & LLM-QA & --- \\
+    $v_4$ & security\_risk & Bandit & $\checkmark$ \\
+    $v_5$ & observability\_coverage & Radon & --- \\
+    $v_6$ & testability & Radon & $\checkmark$ CC \\
+    $v_7$ & maintainability & Radon & $\checkmark$ Halstead \\
+    $v_8$ & technical\_debt & Radon & $\checkmark$ MI \\
+    $v_9$ & performance & LLM-QA & --- \\
+    $v_{10}$ & confidence & Consensus & --- \\
+    $v_{11}$ & anomaly\_score & Z-score & $\checkmark$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent \textbf{Inverted dimensions:} $v_4$, $v_8$, $v_{11}$ represent adverse
+properties; higher values indicate \textit{worse} quality. The vectorizer normalises
+these so that $1.0$ always corresponds to the best quality state.
+
+\subsection{The Cognitive Tensor}
+
+\begin{equation}
+  T[d, i, j, k] \in \mathbb{R}^{n \times s \times a \times t}
+\end{equation}
+
+where $n = 11$ (dimensions), $s = 4$ (stages: design, build, test, deploy),
+$a$ = number of agents (dynamic), $t$ = cycle index (dynamic).
+
+The tensor enables operations unavailable to per-artifact evaluation: current
+snapshot $T[:,:,:,k]$, agent trajectory $T[:,:,j,:]$, stage profile $T[:,i,:,-1]$,
+and dimension trend $T[d,:,:,:]$.
+
+\subsection{The Inference Model}
+
+\begin{equation}
+  I: T \rightarrow \{\Omega, \Delta, \mathcal{P}, \Xi\}
+\end{equation}
+
+\begin{itemize}
+  \item $\Omega$ (\textbf{global state}): $\{$stable $(\bar{T} \geq 0.70)$, warning
+    $(0.50 \leq \bar{T} < 0.70)$, critical $(\bar{T} < 0.50)\}$
+  \item $\Delta$ (\textbf{trend}): $\Delta[d,i,j] = T[d,i,j,k] - T[d,i,j,k-1]$
+    for $|\Delta| > 0.05$
+  \item $\mathcal{P}$ (\textbf{conflict}): $|T[d,i,j_1,k] - T[d,i,j_2,k]| > 0.30$
+  \item $\Xi$ (\textbf{recommendations}): prioritised by estimated impact, derived
+    from $\Delta$ and $\mathcal{P}$
+\end{itemize}
+
+\subsection{The Natural Cognitive Frontier}
+
+The Natural Cognitive Frontier (NCF) is the level of abstraction at which:
+(1) cognitive demand does not exceed working memory capacity;
+(2) the human retains sufficient agency to detect novel failure modes;
+(3) policy expression is natural (natural language, not code or configuration).
+
+TCO positions the human precisely at the NCF by replacing artifact-level review with
+tensor-derived inference output.
+
+\subsection{The Bidirectional Policy Loop}
+
+The human formulates policy as natural language: \textit{``Prioritise security
+hardening in the code agent for the next 3 cycles''}. The
+\texttt{PolicyProcessor} extracts a structured \texttt{PolicyIntent}:
+
+\begin{lstlisting}[caption={PolicyIntent structured extraction}]
+@dataclass
+class PolicyIntent:
+    target_agents:       list[str]  # ["code_agent"]
+    action_type:         str        # "prioritize"
+    affected_dimensions: list[str]  # ["security_risk"]
+    constraint:          str        # "use parameterized queries"
+    priority:            str        # "high"
+\end{lstlisting}
+
+\noindent The struct is serialised as a system prompt patch per target agent.
+If extraction confidence $< 0.70$, the raw policy text is injected directly
+(logged as a degraded case for H5 analysis).
+
+%%
+%% 6. Research Objectives and Hypotheses
+%%
+\section{Research Objectives and Hypotheses}
+
+\noindent \textbf{General Objective:} Determine whether TCO reduces cognitive load and
+improves oversight effectiveness in human supervision of multi-agent AI software systems.
+
+\smallskip
+\noindent We test five directional hypotheses (between-subjects, $n = 40$,
+experimental group: TCO dashboard; control group: raw artifact review):
+
+\begin{description}
+  \item[H1] TCO participants report lower NASA Raw-TLX scores than control
+    ($p < 0.05$, Mann-Whitney U).
+  \item[H2] TCO participants achieve higher fault detection accuracy
+    (precision + recall on ground truth faults), with Cohen's $d > 0.50$.
+  \item[H3] TCO participants achieve the same detection accuracy on
+    temporally accumulated faults (S3 scenario) as on instantaneous faults (S1, S2),
+    while control accuracy decreases.
+  \item[H4] TCO participants achieve lower time-to-correct on S1--S5 faults
+    ($p < 0.05$, Wilcoxon signed-rank).
+  \item[H5] TCO participants formulate higher Policy Injection Quality (PIQ)
+    structured intents, scored by LLM-Judge against expert rubric
+    ($\kappa \geq 0.70$, Spearman $\rho > 0$, $p < 0.05$).
+\end{description}
+
+%%
+%% 7. Experimental Design
+%%
+\section{Experimental Design}
+
+\subsection{Overview}
+
+\begin{table}[t]
+  \caption{Experimental Design Summary}
+  \label{tab:design}
+  \begin{tabular}{ll}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    Design & Between-subjects, single-blind \\
+    $n$ & 40 (20 experimental / 20 control) \\
+    Target profile & Software developers, 2+ years experience \\
+    Sessions & 1 session per participant, 90--120 min \\
+    Tasks & T1--T4 (fault identification, vector analysis, \\
+           & early detection, re-orchestration) \\
+    Scenarios & S1--S5 (SQL injection, circular dep., tech debt, \\
+              & missing metrics, inter-agent conflict) \\
+    Measures & NASA Raw-TLX, task accuracy, time-to-correct, PIQ \\
+    Analysis & Mann-Whitney U, Cohen's $d$, Spearman $\rho$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{The Five Fault Scenarios}
+
+\begin{table}[t]
+  \caption{Fault Scenarios and Ground Truth Vector Deltas}
+  \label{tab:scenarios}
+  \begin{tabular}{p{0.5cm}p{2.5cm}p{4.5cm}}
+    \toprule
+    ID & Fault Type & Ground Truth Impact \\
+    \midrule
+    S1 & SQL injection & $\Delta v_4 = -0.61$, $\Delta v_{11} = -0.59$ \\
+    S2 & Circular dependency & $\Delta v_2 = -0.41$, $\Delta v_7 = -0.26$ \\
+    S3 & Tech debt accumulation & $\Delta v_8 = -0.08/\text{cycle}$ over 3 cycles \\
+    S4 & Missing metrics export & $\Delta v_5 = -0.56$, $\Delta v_9 = -0.26$ \\
+    S5 & Inter-agent conflict & $\Delta \mathcal{P}_\rho = +0.41$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Control Group Environment}
+
+The control group uses the \textit{ControlGroupViewer}: a standardised read-only
+multi-tab interface presenting raw Python source, YAML configurations, architecture
+markdown, and CI/CD logs with syntax highlighting. A structured correction form
+captures free-text issue descriptions with severity classification (Low/Medium/High).
+Layout dimensions, font size, and timer display are identical to the TCO dashboard,
+eliminating interface ergonomics as a confound.
+
+\subsection{Threats to Validity}
+
+\noindent \textbf{Internal.} Task time-boxing (T1:~25 min, T2:~20 min, T3:~15 min,
+T4:~30~min) controls fatigue and equalises exposure. Single-blind design prevents
+demand characteristics but risks experimenter bias; mitigated by automated
+data collection.
+
+\noindent \textbf{Construct.} QA evaluation circularity risk: the QA agent is both the
+measurement instrument (generating vectors) and a component affecting outcomes.
+Mitigated by Spearman $\rho \geq 0.75$ validation between LLM scores and static
+analysis ground truth on $v_4$, $v_6$, $v_7$, $v_8$ before the pilot.
+Cognitive fatigue asymmetry: TCO group may have lower fatigue due to lower cognitive
+demand, confounding T4 re-orchestration scores. Mitigated by counterbalanced scenario
+ordering and between-subjects design.
+
+\noindent \textbf{External.} Convenience sample; $n = 40$ limits power for small
+effects. Controlled deployment scenario; real multi-agent pipelines may exhibit
+different fault distributions.
+
+%%
+%% 8. Software Architecture
+%%
+\section{Software Architecture}
+
+\subsection{System Overview}
+
+The TCO MVP consists of four services: (1) a simulated multi-agent pipeline
+(LangGraph + Claude API), (2) the TCO Engine (FastAPI + PostgreSQL + Redis),
+(3) the orchestration dashboard (React + TypeScript + Recharts), and (4) an
+interaction logger capturing millisecond-precision events for all tasks.
+
+\subsection{Evaluation Vector Pipeline}
+
+The vectorizer $\phi$ combines three sources:
+\begin{itemize}
+  \item \textbf{Radon} (static): cyclomatic complexity ($v_6$), Halstead volume
+    ($v_7$), maintainability index ($v_8$).
+  \item \textbf{Bandit} (static): CVSS-equivalent severity scoring ($v_4$).
+  \item \textbf{LLM-QA} (semantic): structured tool-use evaluation of $v_1, v_2, v_3, v_9$
+    using few-shot prompting with three calibration examples per artifact type.
+\end{itemize}
+
+Confidence ($v_{10}$) is computed as inter-rater agreement between radon and LLM-QA
+on the three overlap dimensions (functional correctness, maintainability, testability):
+
+\begin{equation}
+  v_{10} = 1 - \frac{1}{3} \sum_{d \in \mathcal{D}_\text{overlap}}
+  \left| v_d^{\text{static}} - v_d^{\text{LLM}} \right|
+\end{equation}
+
+Anomaly score ($v_{11}$) is the Z-score of current metrics vs historical baseline,
+clipped at $3\sigma$ and normalised to $[0,1]$:
+
+\begin{equation}
+  v_{11} = 1 - \min\!\left(1, \frac{1}{3} \cdot
+  \mathbb{E}\!\left[\left|\frac{x - \mu}{\sigma + \varepsilon}\right|\right]\right)
+\end{equation}
+
+\subsection{Artifact Cache}
+
+Identical artifacts (keyed by SHA-256 of content) are not re-evaluated.
+Estimated API cost reduction: 40--60\% in repeated-cycle scenarios (DT-017).
+Redis TTL: none for artifact hash (deterministic); 30~s for tensor snapshots.
+
+%%
+%% 9. Challenges and Open Problems
+%%
+\section{Challenges and Open Problems}
+
+\paragraph{Vector Calibration.} The 11-dimensional mapping is theoretically grounded
+but requires empirical calibration to specific software domains. Spearman $\rho \geq 0.75$
+between LLM evaluations and static analysis ground truth is the validation gate.
+
+\paragraph{Tensor Interpretability.} While each cell $T[d,i,j,k]$ is individually
+interpretable, the combined tensor is a high-dimensional object. Dimensionality reduction
+(PCA, UMAP) for visualisation without losing diagnostic information is an open problem.
+
+\paragraph{Multi-Agent Evaluation Bias.} The QA agent evaluates artifacts generated by
+other agents in the same pipeline, creating potential positive correlation bias in scores.
+Cross-agent evaluation protocols are an open research direction.
+
+\paragraph{Policy Injection Semantics.} Natural language policies may be ambiguous or
+under-constrained. The structured extraction + fallback architecture handles the common
+case but does not guarantee semantic fidelity for complex multi-target policies.
+
+%%
+%% 10. Expected Contributions
+%%
+\section{Expected Contributions}
+
+\subsection{Theoretical}
+
+\begin{itemize}
+  \item Formal definition of the Natural Cognitive Frontier (NCF) as a design
+    construct for human-AI collaboration interfaces.
+  \item The cognitive tensor as a representation structure for multi-agent quality state.
+  \item The bidirectional policy loop as an operational model for human orchestration
+    of autonomous AI pipelines.
+\end{itemize}
+
+\subsection{Practical}
+
+\begin{itemize}
+  \item Open-source TCO reference implementation (AGPL-3.0): vectorizer,
+    aggregator, inference engine, orchestration dashboard.
+  \item Deployable experimental platform for replication with other agent
+    architectures and software domains.
+  \item Empirically validated thresholds for the 11-dimension vector in the
+    software development domain.
+\end{itemize}
+
+\subsection{Future Work}
+
+\begin{itemize}
+  \item Extension to non-software agentic domains (data pipelines, scientific
+    workflows, legal document generation).
+  \item Adaptive NCF: dynamically adjusting the abstraction level based on
+    real-time cognitive load estimates from interaction patterns.
+  \item Longitudinal study of operator trust calibration and skill development
+    under TCO supervision.
+\end{itemize}
+
+%%
+%% 11. References
+%%
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+%%
+%% Appendix A — Evaluation Vector Schema
+%%
+\appendix
+\section{Evaluation Vector JSON Schema}
+
+\begin{lstlisting}[language={}]
+{
+  "artifact_id":            "string (UUID)",
+  "agent_id":               "string",
+  "stage":                  "design|build|test|deploy",
+  "cycle_k":                "integer",
+  "vector": {
+    "functional_correctness":  "float [0,1]",
+    "architectural_alignment": "float [0,1]",
+    "scalability_projection":  "float [0,1]",
+    "security_risk":           "float [0,1]  // inverted",
+    "observability_coverage":  "float [0,1]",
+    "testability":             "float [0,1]",
+    "maintainability":         "float [0,1]",
+    "technical_debt":          "float [0,1]  // inverted",
+    "performance":             "float [0,1]",
+    "confidence":              "float [0,1]",
+    "anomaly_score":           "float [0,1]  // inverted"
+  },
+  "created_at": "ISO-8601 timestamp"
+}
+\end{lstlisting}
+
+%%
+%% Appendix B — Technology Stack
+%%
+\section{Technology Stack}
+
+\begin{table}[h]
+  \caption{MVP Technology Stack}
+  \label{tab:stack}
+  \begin{tabular}{llp{4cm}}
+    \toprule
+    Component & Technology & Rationale \\
+    \midrule
+    LLM & Claude (claude-sonnet-4-6) & Tool-use structured output \\
+    Orchestration & LangGraph 0.2+ & State-graph agent coordination \\
+    Engine API & FastAPI + Pydantic v2 & High-performance async REST \\
+    Storage & PostgreSQL 16 & TimescaleDB upgrade path \\
+    Cache & Redis 7 & Artifact + tensor TTL caching \\
+    Static analysis & radon + bandit + pylint & No external server required \\
+    Dashboard & React 18 + Recharts & Real-time tensor visualisation \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}
