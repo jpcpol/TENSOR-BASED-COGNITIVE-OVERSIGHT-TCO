@@ -90,6 +90,33 @@ class InviteRequest(BaseModel):
     is_pilot: bool = False
 
 
+class InviteResponse(BaseModel):
+    ok: bool
+    session_id: str
+    invitation_status: str
+    email_sent: bool
+
+
+# ─── Admin live-session monitor ───────────────────────────────────────────────
+
+class LiveSessionRow(BaseModel):
+    session_id: str
+    participant_id: str
+    participant_name: str
+    group: Optional[str]
+    current_phase: Optional[str]
+    phase_updated_at: Optional[datetime]
+    started_at: Optional[datetime]
+    tasks_submitted: int       # 0–4 (T1..T4)
+    tlx_submitted: int         # 0–2 (post_t2, post_t4)
+    pretest_done: bool
+    ncf_done: bool
+
+
+class PhaseUpdateRequest(BaseModel):
+    phase: str   # consent | pretest | warmup | T1..T4 | tlx_mid | tlx_end | ncf | debriefing
+
+
 # ─── Session runner ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):

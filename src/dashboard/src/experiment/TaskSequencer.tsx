@@ -21,7 +21,7 @@ import type {
 } from '../api/types'
 import { TASK_SEQUENCE, PRE_TEST_QUESTIONS } from '../api/types'
 import {
-  getScenario, submitTask, submitTLX, injectPolicy, completeSession,
+  getScenario, submitTask, submitTLX, injectPolicy, completeSession, updatePhase,
 } from '../api/experimentClient'
 import { vectorizeArtifacts, computeInference } from '../api/tcoClient'
 import { InteractionTracker } from './InteractionTracker'
@@ -79,9 +79,32 @@ interface TCOData {
   error: string | null
 }
 
+// ── Header countdown (timer policy: visible countdown, auto-close per phase) ──
+
+function HeaderTimer({ seconds, onExpiry }: { seconds: number; onExpiry: () => void }) {
+  const { display, remaining } = useCountdown(seconds, onExpiry)
+  return (
+    <span
+      className={`text-xs font-mono tabular-nums px-2 py-0.5 rounded border ${
+        remaining <= 60
+          ? 'text-red-300 border-red-700 bg-red-950'
+          : 'text-gray-300 border-gray-700 bg-gray-800'
+      }`}
+    >
+      ⏱ {display}
+    </span>
+  )
+}
+
 // ── Pre-test component ────────────────────────────────────────────────────────
 
-function PreTest({ onComplete }: { onComplete: () => void }) {
+function PreTest({
+  onProgress, onComplete,
+}: {
+  /** Reports answers accumulated so far (for partial capture on timer expiry). */
+  onProgress: (answers: number[]) => void
+  onComplete: (answers: number[]) => void
+}) {
   const [idx, setIdx] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [answers, setAnswers] = useState<number[]>([])
@@ -92,10 +115,11 @@ function PreTest({ onComplete }: { onComplete: () => void }) {
     const updated = [...answers, selected ?? -1]
     if (idx < PRE_TEST_QUESTIONS.length - 1) {
       setAnswers(updated)
+      onProgress(updated)
       setIdx(idx + 1)
       setSelected(null)
     } else {
-      onComplete()
+      onComplete(updated)
     }
   }
 
@@ -254,6 +278,7 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
   const [tco, setTco] = useState<TCOData>({ vectors: [], inference: null, tensorEntries: [], loading: false, error: null })
   const [loadingScenario, setLoadingScenario] = useState(false)
   const trackerRef = useRef<InteractionTracker | null>(null)
+  const pretestAnswersRef = useRef<number[]>([])
 
   const currentPhase: TaskPhase = TASK_SEQUENCE[phaseIdx] ?? { id: 'complete', label: 'Complete', durationSecs: 0 }
 
@@ -321,13 +346,31 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
     })
   }, [phaseIdx, sessionId, group])
 
-  // ── Init tracker for task phases ──────────────────────────────────────────
+  // ── Init tracker for every scenario phase (tasks AND warm-up) ─────────────
+  // Warm-up needs a live tracker too: the generic group branches render the
+  // same interfaces, and TCODashboard dereferences the tracker on data load.
 
   useEffect(() => {
-    if (currentPhase.task && currentPhase.scenario) {
-      trackerRef.current = new InteractionTracker(sessionId, currentPhase.task, currentPhase.scenario)
+    if (currentPhase.scenario) {
+      trackerRef.current = new InteractionTracker(
+        sessionId, currentPhase.task ?? currentPhase.id, currentPhase.scenario
+      )
     }
   }, [phaseIdx, sessionId])
+
+  // ── Pre-test persistence (ANCOVA covariate — must not be discarded) ───────
+
+  const submitPretest = useCallback(async (answers: number[]) => {
+    const score = answers.reduce(
+      (acc, a, i) => acc + (a === PRE_TEST_QUESTIONS[i]?.correct ? 1 : 0), 0
+    )
+    await submitTask(sessionId, {
+      task: 'PRETEST',
+      scenario: 'PRE',
+      response: JSON.stringify({ answers, score, total: PRE_TEST_QUESTIONS.length }),
+      corrections: [],
+    }).catch(() => {})  // best-effort: don't block the session on API failure
+  }, [sessionId])
 
   // ── Advance to next phase ─────────────────────────────────────────────────
 
@@ -336,12 +379,17 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
     if (phase?.task && phase.scenario) {
       const tracker = trackerRef.current
       const correctionInputs = tracker?.toCorrectionInputs() ?? []
+      // Task-level time-to-first-correction = earliest correction's TTFC
+      // (total elapsed time would contaminate the NCF fragmentation proxy).
+      const ttfcs = correctionInputs
+        .map((c) => c.time_to_first_correction_s)
+        .filter((t): t is number => t !== undefined)
       await submitTask(sessionId, {
         task: phase.task,
         scenario: phase.scenario,
         response: '',
         detected: correctionInputs.length > 0,
-        time_to_first_correction_s: tracker?.elapsedMs() ? tracker.elapsedMs() / 1000 : undefined,
+        time_to_first_correction_s: ttfcs.length > 0 ? Math.min(...ttfcs) : undefined,
         corrections: correctionInputs,
       }).catch(() => {})  // best-effort: don't block progress on API failure
     }
@@ -351,9 +399,22 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
       await completeSession(sessionId).catch(() => {})
       onComplete()
     } else {
+      const nextPhase = TASK_SEQUENCE[next]
+      if (nextPhase) {
+        updatePhase(sessionId, { phase: nextPhase.id }).catch(() => {})
+      }
       setPhaseIdx(next)
     }
   }, [phaseIdx, sessionId, onComplete])
+
+  // ── Timer expiry: capture partials, then advance (timer policy) ───────────
+
+  const handleExpiry = useCallback(async () => {
+    if (TASK_SEQUENCE[phaseIdx]?.id === 'pretest') {
+      await submitPretest(pretestAnswersRef.current)
+    }
+    advance()
+  }, [phaseIdx, advance, submitPretest])
 
   const handleControlComplete = async (corrections: Correction[], _timeMs: number) => {
     const phase = TASK_SEQUENCE[phaseIdx]
@@ -380,15 +441,29 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
 
   // ── Phase-specific rendering ──────────────────────────────────────────────
 
-  // Header — progress bar
+  // Visible countdown for every timed phase except the pause (which renders
+  // its own full-screen countdown). Mounted only when content is ready, so the
+  // LLM vectorization wait does not consume task time. Keyed per phase.
+  const showTimer = currentPhase.durationSecs > 0 && currentPhase.id !== 'pause' && !loadingScenario
+
+  // Header — progress bar + countdown
   const header = (
     <div className="shrink-0 bg-gray-900 border-b border-gray-700 px-4 py-2">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs text-gray-400 font-mono">
           {currentPhase.label} · {currentPhase.scenario ?? ''}
         </span>
-        <span className="text-xs text-gray-600 font-mono">
-          Step {phaseIdx + 1} / {TASK_SEQUENCE.length}
+        <span className="flex items-center gap-3">
+          {showTimer && (
+            <HeaderTimer
+              key={currentPhase.id}
+              seconds={currentPhase.durationSecs}
+              onExpiry={handleExpiry}
+            />
+          )}
+          <span className="text-xs text-gray-600 font-mono">
+            Step {phaseIdx + 1} / {TASK_SEQUENCE.length}
+          </span>
         </span>
       </div>
       <div className="h-1 bg-gray-800 rounded overflow-hidden">
@@ -401,7 +476,15 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
   )
 
   if (currentPhase.id === 'pretest') {
-    return <div className="flex flex-col h-screen">{header}<PreTest onComplete={advance} /></div>
+    return (
+      <div className="flex flex-col h-screen">
+        {header}
+        <PreTest
+          onProgress={(answers) => { pretestAnswersRef.current = answers }}
+          onComplete={async (answers) => { await submitPretest(answers); advance() }}
+        />
+      </div>
+    )
   }
 
   if (currentPhase.id === 'tlx1' || currentPhase.id === 'tlx2') {
@@ -466,39 +549,9 @@ export function TaskSequencer({ sessionId, group, onComplete }: TaskSequencerPro
     )
   }
 
-  // Warmup phase (same interface as experimental but no scoring)
-  if (currentPhase.id === 'warmup' && currentPhase.scenario) {
-    if (group === 'experimental') {
-      return (
-        <div className="flex flex-col h-screen">
-          {header}
-          <div className="flex-1 overflow-hidden">
-            <TCODashboard
-              sessionId={sessionId}
-              phaseId="warmup"
-              scenario="S0"
-              tco={tco}
-              tracker={new InteractionTracker(sessionId, 'warmup', 'S0')}
-              onComplete={advance}
-            />
-          </div>
-        </div>
-      )
-    }
-    return (
-      <div className="flex flex-col h-screen">
-        {header}
-        <div className="flex-1 overflow-hidden">
-          <ControlGroupViewer
-            sessionId={sessionId}
-            taskId="warmup"
-            artifacts={artifacts}
-            onTaskComplete={(_c, _t) => advance()}
-          />
-        </div>
-      </div>
-    )
-  }
+  // NOTE: the warm-up phase (S0) is intentionally handled by the two generic
+  // group branches above — same interfaces, no task id, so advance() submits
+  // nothing and the warm-up stays unscored, per protocol.
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-gray-100 gap-4">

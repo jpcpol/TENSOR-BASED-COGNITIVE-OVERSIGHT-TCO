@@ -263,6 +263,12 @@ class QAEvaluator:
       LLM_PROVIDER=openrouter → OpenAI SDK via OpenRouter (OpenAI-compatible format)
     """
 
+    # Canonical model IDs for each provider. The φ calibration gate (DT-021 v2,
+    # 2026-06-06) is valid ONLY for these exact model strings. Any change requires
+    # re-running the full gate (ρ ≥ 0.75) before any experiment session.
+    _CANONICAL_ANTHROPIC = "claude-sonnet-4-6"
+    _CANONICAL_OPENROUTER = "anthropic/claude-sonnet-4-6"
+
     def __init__(self, model: str | None = None):
         self._provider = os.environ.get("LLM_PROVIDER", "anthropic")
         if self._provider == "openrouter":
@@ -275,11 +281,22 @@ class QAEvaluator:
                     "X-Title": "TCO-L2 Research",
                 },
             )
-            self._model = model or os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4-6")
+            self._model = model or os.environ.get("LLM_MODEL", self._CANONICAL_OPENROUTER)
+            canonical = self._CANONICAL_OPENROUTER
         else:
             from anthropic import Anthropic
             self._client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-            self._model = model or os.environ.get("LLM_MODEL", "claude-sonnet-4-6")
+            self._model = model or os.environ.get("LLM_MODEL", self._CANONICAL_ANTHROPIC)
+            canonical = self._CANONICAL_ANTHROPIC
+
+        if self._model != canonical:
+            logger.warning(
+                "⚠  INSTRUMENT RULE VIOLATION (DT-035): LLM model is '%s' but the "
+                "φ calibration gate (DT-021 v2, 2026-06-06) was run against '%s'. "
+                "Using a different model invalidates calibration — re-run the full "
+                "φ gate (ρ ≥ 0.75) before any experiment session.",
+                self._model, canonical,
+            )
 
     def evaluate(
         self,

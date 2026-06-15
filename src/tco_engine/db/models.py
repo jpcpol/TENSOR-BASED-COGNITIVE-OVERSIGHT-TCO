@@ -97,10 +97,11 @@ class CalSession(Base):
     layer          = Column(String, default="L2", nullable=False)   # L2 / L3 / L4
     status         = Column(SAEnum("invited", "in_progress", "completed", "aborted",
                                    name="cal_session_status"), default="invited")
-    current_phase  = Column(String, nullable=True)   # registro/desacople/.../debriefing
-    is_pilot       = Column(Boolean, default=False)  # excluded from final analysis
-    started_at     = Column(DateTime(timezone=True), nullable=True)
-    completed_at   = Column(DateTime(timezone=True), nullable=True)
+    current_phase      = Column(String, nullable=True)   # consent/pretest/T1../debriefing
+    phase_updated_at   = Column(DateTime(timezone=True), nullable=True)
+    is_pilot           = Column(Boolean, default=False)  # excluded from final analysis
+    started_at         = Column(DateTime(timezone=True), nullable=True)
+    completed_at       = Column(DateTime(timezone=True), nullable=True)
     created_at     = Column(DateTime(timezone=True), default=now_utc)
 
     participant   = relationship("CalParticipant", back_populates="sessions")

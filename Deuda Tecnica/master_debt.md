@@ -842,11 +842,21 @@ La diferencia clave: CAL no intenta explicar *por qué* el sistema hizo lo que h
 **Estado:** Pendiente  
 **Categoría:** Media — revisor de FAccT lo señalará
 
+> [!important] **REGLA DE INSTRUMENTO (decisión del IP, 2026-06-10):** el modelo LLM del
+> evaluador es **`claude-sonnet-4-6` — obligatorio y no configurable**. El gate de
+> calibración φ GO (DT-021 v2) es válido **solo** para `claude-sonnet-4-6` (vía OpenRouter
+> `anthropic/claude-sonnet-4-6` o Anthropic directo). **Cualquier cambio de modelo o de
+> proveedor que altere el modelo invalida la calibración y exige re-correr el gate φ
+> completo (ρ ≥ 0.75) antes de cualquier sesión.** Esto aplica también a despliegues en
+> universidades: el modelo NO se expone como opción configurable — solo como provenance
+> read-only en el admin (ver DT-037).
+
 **Acciones:**
 
 - Pinear versión del modelo en `.env.example` (`LLM_MODEL=anthropic/claude-sonnet-4-6` → especificar fecha/versión exacta)
 - Archivar los outputs LLM del corpus de calibración (JSON con prompt + completion) en `src/experiment/phi_calibration/llm_outputs/`
 - Documentar seeds de numpy para análisis estadístico
+- Warning en startup de `qa_evaluator.py` si `LLM_MODEL` ≠ claude-sonnet-4-6 (junto con DT-037)
 
 ### DT-036 · DT-028 Fase 2 frontend React
 

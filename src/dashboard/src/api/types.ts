@@ -172,6 +172,24 @@ export interface InviteResponse {
   email_sent: boolean
 }
 
+export interface PhaseUpdateRequest {
+  phase: string
+}
+
+export interface LiveSessionRow {
+  session_id: string
+  participant_id: string
+  participant_name: string
+  group: Group | null
+  current_phase: string | null
+  phase_updated_at: string | null
+  started_at: string | null
+  tasks_submitted: number    // 0–4
+  tlx_submitted: number      // 0–2
+  pretest_done: boolean
+  ncf_done: boolean
+}
+
 // ── TCO Core: Vector ──────────────────────────────────────────────────────────
 
 export interface EvaluationVector {
@@ -388,5 +406,60 @@ export const PRE_TEST_QUESTIONS: PreTestQuestion[] = [
       'Functions have fewer than 10 lines of code',
     ],
     correct: 1,
+  },
+  {
+    id: 'q6',
+    prompt: 'A race condition occurs when:',
+    options: [
+      'Two threads access shared state and the outcome depends on timing',
+      'A function recurses without a base case',
+      'An API call exceeds its timeout',
+      'A loop iterates over a list while filtering it',
+    ],
+    correct: 0,
+  },
+  {
+    id: 'q7',
+    prompt: 'In code review, hardcoded credentials in source code are primarily a problem because:',
+    options: [
+      'They make the code harder to read',
+      'They increase memory usage',
+      'They are exposed to anyone with repo access and persist in git history',
+      'They slow down CI pipelines',
+    ],
+    correct: 2,
+  },
+  {
+    id: 'q8',
+    prompt: 'The "N+1 query" problem refers to:',
+    options: [
+      'Running one query per item in a collection instead of a single batched query',
+      'A database with N+1 replicas',
+      'An off-by-one error in pagination',
+      'A query that returns one extra row',
+    ],
+    correct: 0,
+  },
+  {
+    id: 'q9',
+    prompt: 'An idempotent operation is one that:',
+    options: [
+      'Runs in constant time',
+      'Produces the same result if applied multiple times',
+      'Never throws exceptions',
+      'Requires no authentication',
+    ],
+    correct: 1,
+  },
+  {
+    id: 'q10',
+    prompt: 'Which signal is most useful to detect a slow degradation of code quality across releases?',
+    options: [
+      'A single static analysis snapshot of the latest release',
+      'The number of commits per day',
+      'A trend of complexity / maintainability metrics across versions',
+      'The size of the repository in MB',
+    ],
+    correct: 2,
   },
 ]

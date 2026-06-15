@@ -6,12 +6,18 @@ DT-030 — H_OBS: causal observability (PRIMARY hypothesis).
 H_OBS: The benefit of the TCO Dashboard scales with the Causal Complexity
        Index (CCI) of the scenario. Formally, the Group × CCI interaction is
        positive: the experimental advantage is small/absent for low-CCI
-       scenarios (S1, S4) and large for high-CCI scenarios (S3, S5).
+       scenarios (S1, S2) and large for high-CCI scenarios (S3, S5).
 
        Operational prediction (pre-registered):
-           ΔPIQ(S3, S5)  >>  ΔPIQ(S1, S4)
+           ΔPIQ(S3, S5)  >>  ΔPIQ(S1, S2)
        and, on the shared accuracy outcome, the Group × CCI interaction term
        is significant and positive.
+
+       AMENDED 2026-06-10 (before any RCT data collection): the low-CCI cell
+       was originally specified as {S1, S4}, but S4 is not administered in the
+       session (TASK_SEQUENCE runs T1..T4 = S1, S2, S3, S5). S2 has the same
+       CCI (=2) as S4 and IS administered. See
+       analysis/AMENDMENT_2026-06-10_HOBS_LOWCCI.md.
 
 This is the program's central claim under the causal-observability reframing
 (CAL_Benchmark_v1.md). H1/H2/H4/H5 are secondary / triangulating.
@@ -20,7 +26,7 @@ Design note: CCI is a between-scenario (within-participant) factor; Group is
 between-participants. Each participant sees all scenarios → mixed (split-plot)
 ANOVA on the accuracy outcome, with the Group × CCI(-as-ordinal) interaction
 as the term of interest. We complement the omnibus ANOVA with a directly
-pre-registered contrast: mean experimental−control gap on {S3,S5} vs {S1,S4}.
+pre-registered contrast: mean experimental−control gap on {S3,S5} vs {S1,S2}.
 
 Usage:
   python analysis/h_obs_causal.py --dry-run
@@ -39,7 +45,8 @@ from _data import CCI, add_common_args, banner, resolve_dataset
 from _stats import Estimate, bootstrap_ci, cohens_d, interpret_d, stars
 
 HIGH_CCI = ["S3", "S5"]   # CCI 4, 3 — invisible / hard for raw review
-LOW_CCI = ["S1", "S4"]    # CCI 1, 2 — visible in a single artifact
+LOW_CCI = ["S1", "S2"]    # CCI 1, 2 — visible in a single artifact
+# (amended 2026-06-10: S4→S2, same CCI=2; S4 is not administered in-session)
 
 
 def _gap_contrast(exp_hi, ctl_hi, exp_lo, ctl_lo) -> float:
@@ -139,7 +146,7 @@ def report(r: dict) -> None:
 
     print("\n[Pre-registered contrast] experimental−control accuracy gap:")
     print(f"  high-CCI (S3,S5) gap : {r['gap_high_cci']:+.3f}")
-    print(f"  low-CCI  (S1,S4) gap : {r['gap_low_cci']:+.3f}")
+    print(f"  low-CCI  (S1,S2) gap : {r['gap_low_cci']:+.3f}")
     print(f"  {r['contrast'].label:24s}: {r['contrast'].fmt()}")
     print(f"  Mann-Whitney (hi−lo, exp>ctl): U={r['contrast_u']:.1f}  "
           f"p={r['contrast_p']:.4g} {stars(r['contrast_p'])}")

@@ -30,9 +30,10 @@ from tco_engine.db.models import (
 )
 from tco_engine.schemas.cal import (
     AdminParticipant, ConsentRequest, GroupOverrideRequest, InviteRequest,
-    LoginRequest, MeResponse, PolicyInjectRequest, RegisterRequest,
-    ResultsResponse, ScenarioArtifact, SessionSummary, StartSessionRequest,
-    TaskResultOut, TaskSubmitRequest, TLXRequest, TokenResponse,
+    InviteResponse, LiveSessionRow, LoginRequest, MeResponse, PhaseUpdateRequest,
+    PolicyInjectRequest, RegisterRequest, ResultsResponse, ScenarioArtifact,
+    SessionSummary, StartSessionRequest, TaskResultOut, TaskSubmitRequest,
+    TLXRequest, TokenResponse,
 )
 
 router = APIRouter()
@@ -65,8 +66,13 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(CalParticipant).filter(CalParticipant.email == req.email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    stratum = randomization.stratum_for_experience(req.years_experience)
-    group = randomization.assign_group(db, stratum)
+    # Pre-screening (participant_session_protocol.md §1): <2 years of code
+    # review or prior TCO exposure → ineligible. The account is created (so
+    # the contact is not lost) but no group is assigned; the admin sees the
+    # disqualifying fields in the listing and will not invite.
+    eligible = req.years_experience >= 2 and not req.prior_tco_exposure
+    stratum = randomization.stratum_for_experience(req.years_experience) if eligible else None
+    group = randomization.assign_group(db, stratum) if eligible else None
 
     participant = CalParticipant(
         email=req.email,
@@ -133,6 +139,13 @@ def _current_session_summary(db: Session, participant_id: str) -> SessionSummary
         CalSession.status.in_(["invited", "in_progress"]),
     ).order_by(CalSession.created_at.desc()).first()
     if not session:
+        # No active session — surface the latest completed one so the
+        # participant can re-open their debriefing results after re-login.
+        session = db.query(CalSession).filter(
+            CalSession.participant_id == participant_id,
+            CalSession.status == "completed",
+        ).order_by(CalSession.created_at.desc()).first()
+    if not session:
         return None
     invite = db.query(CalInvitation).filter(
         CalInvitation.participant_id == participant_id
@@ -191,6 +204,42 @@ def admin_participants(
             consent_given=p.consent_at is not None,
             session_status=latest.status if latest else None,
             created_at=p.created_at,
+        ))
+    return out
+
+
+@router.get("/admin/sessions/live", response_model=list[LiveSessionRow])
+def admin_live_sessions(
+    _admin: CalParticipant = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all in-progress sessions with per-participant instrument checkmarks."""
+    sessions = (
+        db.query(CalSession)
+        .filter(CalSession.status == "in_progress")
+        .order_by(CalSession.started_at.desc())
+        .all()
+    )
+    out: list[LiveSessionRow] = []
+    for s in sessions:
+        p = s.participant
+        tasks_done = {r.task for r in s.task_results
+                      if r.task and not r.task.startswith("PRETEST")}
+        pretest_done = any(r.task == "PRETEST" for r in s.task_results)
+        tlx_count = len(s.tlx)
+        ncf_done = s.ncf is not None
+        out.append(LiveSessionRow(
+            session_id=s.id,
+            participant_id=p.id,
+            participant_name=p.name,
+            group=p.group,
+            current_phase=s.current_phase,
+            phase_updated_at=s.phase_updated_at,
+            started_at=s.started_at,
+            tasks_submitted=len(tasks_done),
+            tlx_submitted=min(tlx_count, 2),
+            pretest_done=pretest_done,
+            ncf_done=ncf_done,
         ))
     return out
 
@@ -305,6 +354,21 @@ def start_session(
     session.started_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True, "session_id": session.id, "status": session.status}
+
+
+@router.post("/session/{session_id}/phase")
+def update_phase(
+    session_id: str,
+    req: PhaseUpdateRequest,
+    participant: CalParticipant = Depends(get_current_participant),
+    db: Session = Depends(get_db),
+):
+    """Heartbeat from TaskSequencer on each phase transition — writes current_phase."""
+    session = _owned_session(db, session_id, participant)
+    session.current_phase = req.phase
+    session.phase_updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True, "phase": req.phase}
 
 
 @router.post("/session/{session_id}/task")

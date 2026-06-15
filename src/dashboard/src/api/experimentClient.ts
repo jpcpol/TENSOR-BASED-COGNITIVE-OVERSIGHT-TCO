@@ -16,8 +16,10 @@ import type {
   GroupOverrideRequest,
   InviteRequest,
   InviteResponse,
+  LiveSessionRow,
   LoginRequest,
   MeResponse,
+  PhaseUpdateRequest,
   PolicyInjectRequest,
   RegisterRequest,
   ResultsResponse,
@@ -197,6 +199,21 @@ export async function getSessionResults(sessionId: string): Promise<ResultsRespo
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
+
+export async function updatePhase(
+  sessionId: string,
+  req: PhaseUpdateRequest
+): Promise<void> {
+  return withRetry(() =>
+    http.post(`/session/${sessionId}/phase`, req).then(() => undefined)
+  )
+}
+
+export async function adminListLiveSessions(): Promise<LiveSessionRow[]> {
+  return withRetry(() =>
+    http.get<LiveSessionRow[]>('/admin/sessions/live').then((r) => r.data)
+  )
+}
 
 export async function adminListParticipants(): Promise<AdminParticipant[]> {
   return withRetry(() =>

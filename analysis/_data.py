@@ -207,7 +207,7 @@ def synthetic_dataset(n_per_group: int = 20, seed: int = 7) -> Dataset:
       • time-to-correct (H4): experimental faster, strongest on S3 (CCI=4).
       • PIQ (H5): present only for experimental group; PIQ correlates with the
         planted Δ-vector improvement.
-      • H_OBS: ΔPIQ(S3,S5) >> ΔPIQ(S1,S4) by construction (gain weighted by CCI).
+      • H_OBS: ΔPIQ(S3,S5) >> ΔPIQ(S1,S2) by construction (gain weighted by CCI).
     """
     rng = np.random.default_rng(seed)
     mean_cci = np.mean(list(CCI.values()))
@@ -258,12 +258,15 @@ def synthetic_dataset(n_per_group: int = 20, seed: int = 7) -> Dataset:
             ))
     tlx = pd.DataFrame(tlx_rows)
 
-    # ── tasks (one per scenario; T-tasks map T1..T4, plus S4 as a probe row) ──
+    # ── tasks (one per scenario; T-tasks map T1..T4 — exactly the scenarios
+    #    the session administers; no synthetic-only rows, so the dry-run
+    #    matches the real design. Amendment 2026-06-10: the former "T4b"/S4
+    #    probe row masked the fact that S4 is never administered.) ──
     task_rows = []
     for _, p in participants.iterrows():
         is_exp = p["group"] == "experimental"
         skill = {"junior": -0.05, "mid": 0.0, "senior": 0.05}[p["stratum"]]
-        for task, scen in list(TASK_SCENARIO.items()) + [("T4b", "S4")]:
+        for task, scen in TASK_SCENARIO.items():
             c = cci_norm(scen)
             # Control detection drops as CCI rises (S3/S5 ~invisible to raw review).
             base_p = 0.85 - 0.55 * c + skill

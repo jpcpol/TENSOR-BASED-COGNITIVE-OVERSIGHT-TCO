@@ -14,6 +14,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from pydantic import EmailStr, TypeAdapter, ValidationError
+
 from tco_engine.core.auth import hash_password
 from tco_engine.db.database import Base, SessionLocal, engine
 from tco_engine.db.models import CalParticipant
@@ -25,6 +27,15 @@ def main() -> int:
     parser.add_argument("--password", help="required when creating a new account")
     parser.add_argument("--name", default="Admin")
     args = parser.parse_args()
+
+    # Validate with the same EmailStr the API uses — otherwise an account with
+    # a reserved TLD (e.g. .test) can be created here but never log in.
+    try:
+        TypeAdapter(EmailStr).validate_python(args.email)
+    except ValidationError:
+        print(f"ERROR: '{args.email}' is not a valid email (API logins use EmailStr "
+              "and would reject it)", file=sys.stderr)
+        return 2
 
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
